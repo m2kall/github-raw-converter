@@ -1,0 +1,10 @@
+name = "github-raw-converter"
+main = "index.js"
+compatibility_date = "2025-05-14"  # 可以使用当前日期或保持这个值
+
+# 如果你想使用自定义域名，才需要配置以下部分，如果你不使用自定义域名，可以直接删除 [triggers] 部分，应用会使用默认的 workers.dev 子域名
+# 如果只使用 workers.dev 域名，可以删除或注释掉下面的 [triggers]
+# [triggers]
+# routes = [
+#   { pattern = "你的自定义域名/*", zone_name = "你的自定义域名" }
+# ]
