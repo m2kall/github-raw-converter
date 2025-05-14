@@ -3,11 +3,23 @@ addEventListener('fetch', event => {
   })
   
   async function handleRequest(request) {
+    // 添加基本的CORS头，如果需要的话
+    const corsHeaders = {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    }
+    
+    // 处理OPTIONS请求
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { headers: corsHeaders })
+    }
+    
     const url = new URL(request.url)
     
     // 如果是API请求，处理GitHub URL转换
     if (url.pathname.startsWith('/api/convert')) {
-      return handleApiRequest(request)
+      return handleApiRequest(request, corsHeaders)
     }
     
     // 否则返回HTML页面
@@ -18,7 +30,7 @@ addEventListener('fetch', event => {
     })
   }
   
-  async function handleApiRequest(request) {
+  async function handleApiRequest(request, corsHeaders = {}) {
     try {
       const url = new URL(request.url)
       const githubUrl = url.searchParams.get('url')
@@ -26,35 +38,64 @@ addEventListener('fetch', event => {
       if (!githubUrl) {
         return new Response(JSON.stringify({ error: '请提供GitHub URL' }), {
           status: 400,
-          headers: { 'Content-Type': 'application/json' }
+          headers: { 'Content-Type': 'application/json', ...corsHeaders }
         })
       }
       
       const rawUrl = convertToRawUrl(githubUrl)
       
+      // 可选：验证生成的raw链接是否可访问
+      // 这会增加延迟，但可以确保链接有效
+      // const checkResponse = await fetch(rawUrl, { method: 'HEAD' })
+      // if (!checkResponse.ok) {
+      //   throw new Error('无法访问该文件，请确保文件存在且可公开访问')
+      // }
+      
       return new Response(JSON.stringify({ rawUrl }), {
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
       })
     } catch (error) {
       return new Response(JSON.stringify({ error: error.message }), {
         status: 400,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
       })
     }
   }
   
+    
   function convertToRawUrl(githubUrl) {
     // 验证URL是否为GitHub URL
     if (!githubUrl.includes('github.com')) {
       throw new Error('无效的GitHub URL')
     }
     
-    // 替换域名和移除blob部分
-    const rawUrl = githubUrl
-      .replace('github.com', 'raw.githubusercontent.com')
-      .replace('/blob/', '/')
-    
-    return rawUrl
+    try {
+      // 尝试解析URL以确保它是有效的
+      const url = new URL(githubUrl)
+      
+      // 确保是github.com域名
+      if (!url.hostname.endsWith('github.com')) {
+        throw new Error('无效的GitHub URL')
+      }
+      
+      // 检查URL路径格式是否符合GitHub仓库文件路径
+      const pathParts = url.pathname.split('/')
+      if (pathParts.length < 5 || !pathParts.includes('blob')) {
+        throw new Error('无效的GitHub文件URL，请确保链接指向仓库中的文件')
+      }
+      
+      // 替换域名和移除blob部分
+      const rawUrl = githubUrl
+        .replace('github.com', 'raw.githubusercontent.com')
+        .replace('/blob/', '/')
+      
+      return rawUrl
+    } catch (error) {
+      if (error.message.includes('无效的GitHub')) {
+        throw error
+      }
+      throw new Error('无效的URL格式')
+    }
   }
   
   // HTML前端页面
@@ -64,6 +105,7 @@ addEventListener('fetch', event => {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GitHub Raw链接转换器</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIiB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCI+CiAgPCEtLSDlnIblvaLog4zmma8gLS0+CiAgPGNpcmNsZSBjeD0iNTAiIGN5PSI1MCIgcj0iNTAiIGZpbGw9IiMyNDI5MmUiIC8+CiAgCiAgPCEtLSBHaXRIdWIg5a6Y5pa55a2Q5Zu+5qCH566A5YyW54mIIC0tPgogIDxwYXRoIGQ9Ik01MCAyNUMzNi4yIDI1IDI1IDM2LjIgMjUgNTBjMCAxMSA3LjIgMjAuNCAxNy4xIDIzLjdjMS4zIDAuMiAxLjctMC41IDEuNy0xLjJjMC0wLjYgMC0yLjEgMC00LjFjLTcgMS41LTguNC0zLjQtOC40LTMuNGMtMS4xLTIuOS0yLjgtMy43LTIuOC0zLjdjLTIuMy0xLjYgMC4yLTEuNSAwLjItMS41YzIuNSAwLjIgMy44IDIuNiAzLjggMi42YzIuMiAzLjggNS45IDIuNyA3LjMgMi4xYzAuMi0xLjYgMC45LTIuNyAxLjYtMy4zYy01LjYtMC42LTExLjQtMi44LTExLjQtMTIuNGMwLTIuNyAxLTUgMi42LTYuN2MtMC4zLTAuNi0xLjEtMy4xIDAuMi02LjVjMCAwIDIuMS0wLjcgNi45IDIuNmMyLTAuNiA0LjEtMC44IDYuMy0wLjhjMi4xIDAgNC4zIDAuMyA2LjMgMC44YzQuOC0zLjIgNi45LTIuNiA2LjktMi42YzEuNCAzLjQgMC41IDUuOSAwLjIgNi41YzEuNiAxLjcgMi42IDQgMi42IDYuN2MwIDkuNi01LjkgMTEuOC0xMS41IDEyLjRjMC45IDAuOCAxLjcgMi4zIDEuNyA0LjZjMCAzLjMgMCA2IDAgNi44YzAgMC43IDAuNSAxLjQgMS43IDEuMkM2Ny44IDcwLjQgNzUgNjEgNzUgNTBDNzUgMzYuMiA2My44IDI1IDUwIDI1eiIgZmlsbD0id2hpdGUiLz4KICAKICA8IS0tIFJBVyDmlofmnKwgLS0+CiAgPHJlY3QgeD0iMzUiIHk9IjY1IiB3aWR0aD0iMzAiIGhlaWdodD0iMTUiIHJ4PSI0IiBmaWxsPSIjMmVhNDRmIiAvPgogIDx0ZXh0IHg9IjM4IiB5PSI3NyIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjEyIiBmb250LXdlaWdodD0iYm9sZCIgZmlsbD0id2hpdGUiPlJBVzwvdGV4dD4KPC9zdmc+">  
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css">
     <style>
       .animate-gradient {
@@ -109,7 +151,19 @@ addEventListener('fetch', event => {
     </button>
   
     <header class="animate-gradient p-4 text-white shadow-lg">
-      <div class="container mx-auto">
+      <div class="container mx-auto flex items-center">
+        <svg class="w-10 h-10 mr-3" viewBox="0 0 100 100">
+        <!-- 圆形背景 -->
+        <circle cx="50" cy="50" r="50" fill="#24292e" />
+        
+        <!-- GitHub 官方猫图标 -->
+        <path d="M50 25C36.2 25 25 36.2 25 50c0 11 7.2 20.4 17.1 23.7c1.3 0.2 1.7-0.5 1.7-1.2c0-0.6 0-2.1 0-4.1c-7 1.5-8.4-3.4-8.4-3.4c-1.1-2.9-2.8-3.7-2.8-3.7c-2.3-1.6 0.2-1.5 0.2-1.5c2.5 0.2 3.8 2.6 3.8 2.6c2.2 3.8 5.9 2.7 7.3 2.1c0.2-1.6 0.9-2.7 1.6-3.3c-5.6-0.6-11.4-2.8-11.4-12.4c0-2.7 1-5 2.6-6.7c-0.3-0.6-1.1-3.1 0.2-6.5c0 0 2.1-0.7 6.9 2.6c2-0.6 4.1-0.8 6.3-0.8c2.1 0 4.3 0.3 6.3 0.8c4.8-3.2 6.9-2.6 6.9-2.6c1.4 3.4 0.5 5.9 0.2 6.5c1.6 1.7 2.6 4 2.6 6.7c0 9.6-5.9 11.8-11.5 12.4c0.9 0.8 1.7 2.3 1.7 4.6c0 3.3 0 6 0 6.8c0 0.7 0.5 1.4 1.7 1.2C67.8 70.4 75 61 75 50C75 36.2 63.8 25 50 25z" fill="white"/>
+        
+        <!-- RAW 图标 -->
+        <rect x="35" y="65" width="30" height="15" rx="4" fill="#2ea44f" />
+        <text x="38" y="77" font-family="Arial, sans-serif" font-size="12" font-weight="bold" fill="white">RAW</text>
+      </svg>
+      <div>
         <h1 class="text-2xl md:text-3xl font-bold">GitHub Raw链接转换器</h1>
         <p class="text-sm md:text-base opacity-90">将 GitHub 仓库文件链接转换为 raw.githubusercontent.com 原始内容链接</p>
       </div>
@@ -206,7 +260,7 @@ addEventListener('fetch', event => {
     </main>
   
     <footer class="py-6 text-center text-gray-500 dark:text-gray-400 text-sm">
-      <p>© 2023 GitHub Raw链接转换器 | <a href="https://github.com" class="underline hover:text-indigo-500">GitHub</a></p>
+      <p>© 2025 GitHub Raw链接转换器 | <a href="https://github.com/m2kall/github-raw-converter" class="underline hover:text-indigo-500">GitHub</a></p>
     </footer>
   
     <script>
